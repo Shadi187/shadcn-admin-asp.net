@@ -275,6 +275,8 @@ namespace backend.Migrations
 
                     b.HasIndex("AssignedUserId");
 
+                    b.HasIndex("CreatedAt");
+
                     b.ToTable("Tasks");
                 });
 

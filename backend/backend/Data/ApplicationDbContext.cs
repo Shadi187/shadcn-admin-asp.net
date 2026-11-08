@@ -21,9 +21,14 @@ public class ApplicationDbContext:IdentityDbContext<ApplicationUser>
             .WithMany(u => u.AssignedTasks)
             .HasForeignKey(t => t.AssignedUserId)
             .OnDelete(DeleteBehavior.SetNull);
+
+        builder.Entity<TaskItem>()
+            .HasIndex(e=>e.CreatedAt);
     }
 
     public DbSet<TaskItem> Tasks { get; set; } = null!;
+    
+    
 
 
 }

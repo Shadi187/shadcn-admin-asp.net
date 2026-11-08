@@ -1,6 +1,7 @@
 using backend.Data;
 using backend.DTOs.Tasks;
 using backend.Entities;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 
 namespace backend.Services.Tasks;
@@ -14,10 +15,83 @@ public class TaskService
         _context = context;
     }
     
-    public async Task<List<TaskResponseDto>> GetAllTasksAsync()
+    public async Task<PaginatedTasksResponseDto> GetAllTasksAsync(
+        TaskQueryParameters taskQuery
+        )
     {
+        
+        PaginatedTasksResponseDto returnedQuery = new PaginatedTasksResponseDto();
 
-        var tasks = await _context.Tasks.Select(p => new TaskResponseDto
+        returnedQuery.PageNumber = taskQuery.PageNumber;
+        returnedQuery.PageSize = taskQuery.PageSize;
+
+        var escapedSearch = taskQuery.Search!
+            .Replace("!", "!!")
+            .Replace("%", "!%")
+            .Replace("_", "!_");
+
+        var pattern = $"%{escapedSearch}%";
+        
+        
+
+        var skip = ((long)taskQuery.PageNumber - 1) * taskQuery.PageSize;
+        
+        var propertyName = taskQuery.SortBy?.ToLowerInvariant() switch
+        {
+            "title" => nameof(TaskItem.Title),
+            "createdat" => nameof(TaskItem.CreatedAt),
+            _ => nameof(TaskItem.CreatedAt)
+        };
+
+        IQueryable<TaskItem> tasks = _context.Tasks;
+        
+        //  FILTERING
+        if (!string.IsNullOrWhiteSpace(taskQuery.Status))
+        {
+            tasks = tasks.Where(e => e.Status == taskQuery.Status);
+        }
+
+        if (!string.IsNullOrWhiteSpace(taskQuery.Priority))
+        {
+            tasks = tasks.Where(e => e.Priority == taskQuery.Priority);
+        }
+        
+        if (!string.IsNullOrWhiteSpace(taskQuery.Label))
+        {
+            tasks = tasks.Where(e =>EF.Functions.ILike(e.Label, $"%{taskQuery.Label}%"));
+        }
+
+        if (!string.IsNullOrWhiteSpace(taskQuery.Search))
+        {
+            tasks = tasks.Where(e => EF.Functions.ILike(e.Title, pattern, "!") ||
+                                     EF.Functions.ILike(e.Label, pattern, escapeCharacter:"!"));
+        }
+
+        
+
+        
+        //COUNTING
+        returnedQuery.TotalCount = await tasks
+            .CountAsync();
+        
+        returnedQuery.TotalPages = (int)Math.Ceiling((double)returnedQuery.TotalCount/ returnedQuery.PageSize);
+        
+        //SORTING
+        if (taskQuery.SortDirection == "asc")
+        {
+            tasks = tasks.OrderBy(e =>EF.Property<object>(e,propertyName)).ThenBy(e => e.Id);
+        }
+
+        else
+        {
+            tasks = tasks.OrderByDescending(e => EF.Property<object>(e,propertyName)).ThenBy(e => e.Id);
+
+        }
+
+        
+        
+        //SELECTING
+        var query = tasks.Select(p => new TaskResponseDto
             {
                 Id = p.Id,
                 Title = p.Title,
@@ -26,40 +100,60 @@ public class TaskService
                 Priority = p.Priority,
                 CreatedAt = p.CreatedAt,
                 UpdatedAt = p.UpdatedAt,
-                AssignedUserId = p.AssignedUserId
+                AssignedUserId = p.AssignedUserId,
+                AssignedUserName = p.AssignedUser == null ? null : p.AssignedUser.FirstName + " " + p.AssignedUser.LastName 
+                
+                
             }
-        ).ToListAsync();
+        );
 
-        return tasks;
+
+
+        if (skip > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(taskQuery.PageNumber),
+                "Pagination offset is too large"
+            );
+        }
+        
+         int offset = (int)skip;
+        
+         
+         
+        //SKIPPING
+        var pageQuery =  query
+            .Skip(offset)
+            .Take(taskQuery.PageSize);
+            
+        Console.WriteLine("SQL TIMEEE  \n" + pageQuery.ToQueryString());
+
+        returnedQuery.Items = await pageQuery.ToListAsync();
+        
+        return returnedQuery;
+
     }
 
     public async Task<TaskResponseDto?> GetTaskByIdAsync(Guid id)
     {
-        var task = await _context.Tasks.FirstOrDefaultAsync(p => p.Id == id);
+        var task =  _context.Tasks.Where(p => p.Id == id);
 
-        if (task != null)
+        var selectedTasks = task.Select(p => new TaskResponseDto
         {
-            var returnedTask = new TaskResponseDto
-            {
-                Id = task.Id,
-                Title = task.Title,
-                Status = task.Status,
-                Label = task.Label,
-                Priority = task.Priority,
-                CreatedAt = task.CreatedAt,
-                UpdatedAt = task.UpdatedAt,
-                AssignedUserId = task.AssignedUserId
-            };
+            Id = p.Id,
+            Title = p.Title,
+            Status = p.Status,
+            Label = p.Label,
+            Priority = p.Priority,
+            CreatedAt = p.CreatedAt,
+            UpdatedAt = p.UpdatedAt,
+            AssignedUserId = p.AssignedUserId   
+        });
 
+        var querySql = selectedTasks.ToQueryString();
+        Console.WriteLine(querySql);
 
-
-            return returnedTask;
-        }
-
-        else
-        {
-            return null;
-        }
+        return await selectedTasks.FirstOrDefaultAsync();
     }
 
     public async Task<TaskResponseDto> CreateTaskAsync(CreateTaskDto dto)
@@ -115,6 +209,10 @@ public class TaskService
 
         await _context.SaveChangesAsync();
 
+        
+        
+        
+        
         return true;
     }
     
@@ -130,5 +228,12 @@ public class TaskService
             CreatedAt = newTask.CreatedAt,
             UpdatedAt = newTask.UpdatedAt,
         };
+        
+    
     }
+
+
+    
+    
+
 }

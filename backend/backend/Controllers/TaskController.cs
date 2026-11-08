@@ -29,11 +29,28 @@ public class TaskController: ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<List<TaskResponseDto>>> GetAll()
+    public async Task<ActionResult<List<PaginatedTasksResponseDto>>> GetAll(
+       [FromQuery] TaskQueryParameters taskQuery
+         )
     {
-        var tasks = await _service.GetAllTasksAsync();
+        if (taskQuery.PageNumber < 1 || taskQuery.PageSize < 1 || taskQuery.PageSize > 100)
+        {
+            return BadRequest();
+        }
 
-        return Ok(tasks);
+        try
+        {
+            var tasks = await _service.GetAllTasksAsync(
+                taskQuery
+            );
+
+            return Ok(tasks);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        
         
     }
 

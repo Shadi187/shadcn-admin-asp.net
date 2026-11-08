@@ -10,4 +10,5 @@ public class TaskResponseDto
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public string? AssignedUserId { get; set; } = string.Empty;
+    public string? AssignedUserName { get; set; } 
 }
